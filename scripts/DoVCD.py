@@ -123,7 +123,8 @@ def main(prefix, type):
     boltz=get_weights(energies[type])
     for file in energies[type]['files']:
         print file, boltz[file], energies[type][file]
-    specs=['ir', 'vcd', 'or']
+    #specs=['ir', 'vcd', 'or']
+    specs=['vcd', 'or']
     or_sum=0
     for spec in specs:
         final_spectra=numpy.zeros((20)) # initial zero array
@@ -141,16 +142,23 @@ def main(prefix, type):
                 else:
                     final_spectra+=boltz[file]*numpy.array(spectra[file]['new_%s' %
 spec])
-                pylab.vlines(x=spectra[file]['freqs'], ymin=[0]*len(spectra[file][spec]),ymax=spectra[file][spec])
-                if boltz[file] > 0.05:
-                    pylab.plot(spectra[file]['new_freqs'], spectra[file]['new_%s' % spec], linewidth=boltz[file]*4)
+                #pylab.vlines(x=spectra[file]['freqs'], ymin=[0]*len(spectra[file][spec]),ymax=spectra[file][spec])
+                if boltz[file] > 0.0846:
+                    pylab.plot(spectra[file]['new_freqs'], spectra[file]['new_%s' % spec], linewidth=boltz[file]*10, label=round(boltz[file],3))
+                    #pylab.xlim(0, int(max(spectra[file]['new_freqs'])))
+                    #pylab.xlabel('wavenumbers (cm$^{-1}$')
+                    #pylab.ylabel('%s Intensity' % spec)
         if spec=='or':
             print "OR Rotation: %s deg." % round(or_sum,2)
         else:
             pylab.plot(spectra[file]['new_freqs'], final_spectra, linewidth=4)
-            pylab.xlim(0, int(max(spectra[file]['new_freqs'])))
+            numpy.savetxt('boltz_vcd.txt', final_spectra)
+            numpy.savetxt('boltz_freqs.txt', spectra[file]['new_freqs'])
+            #pylab.xlim(0, int(max(spectra[file]['new_freqs'])))
+            pylab.xlim(1000, 2000)
             pylab.xlabel('wavenumbers (cm$^{-1}$')
             pylab.ylabel('%s Intensity' % spec)
+            pylab.legend()
             pylab.savefig('%s.png' % spec, dpi=300)
     pylab.show()
 
