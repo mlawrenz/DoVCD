@@ -127,7 +127,7 @@ def main(prefix, type):
     or_sum=0
     for spec in specs:
         final_spectra=numpy.zeros((20)) # initial zero array
-        if spec!='vcd':
+        if spec!='or':
             pylab.figure()
         for file in energies[type]['files']:
             if spec=='or':
