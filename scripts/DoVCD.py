@@ -121,8 +121,8 @@ def main(prefix, type):
             else:
                 pass
     boltz=get_weights(energies[type])
-    for file in energies[type]['files']:
-        print file, boltz[file], energies[type][file]
+    #for file in energies[type]['files']:
+    #    print file, boltz[file], energies[type][file]
     #specs=['ir', 'vcd', 'or']
     specs=['vcd', 'or']
     or_sum=0
@@ -143,7 +143,7 @@ def main(prefix, type):
                     final_spectra+=boltz[file]*numpy.array(spectra[file]['new_%s' %
 spec])
                 #pylab.vlines(x=spectra[file]['freqs'], ymin=[0]*len(spectra[file][spec]),ymax=spectra[file][spec])
-                if boltz[file] > 0.0846:
+                if boltz[file] > 0.06:
                     pylab.plot(spectra[file]['new_freqs'], spectra[file]['new_%s' % spec], linewidth=boltz[file]*10, label=round(boltz[file],3))
                     #pylab.xlim(0, int(max(spectra[file]['new_freqs'])))
                     #pylab.xlabel('wavenumbers (cm$^{-1}$')
