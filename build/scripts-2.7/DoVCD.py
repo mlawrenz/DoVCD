@@ -79,7 +79,6 @@ def parse(spectra, file):
 def sort_kcal(data, type):
     num=len(data.keys())
     energies=dict()
-    print "---sorted %s---" % type
     energies[type]=dict()
     for_sort=[(i,data[i][type]) for i in data.keys()]
     sorted_files=heapq.nsmallest(num,for_sort, operator.itemgetter(1))
@@ -88,7 +87,6 @@ def sort_kcal(data, type):
     for file in energies[type]['files']:
         new=627.5*(data[file][type]-min)
         energies[type][file]=new
-    #    print file, new
     return energies 
 
 def get_weights(free_energies):
@@ -100,13 +98,44 @@ def get_weights(free_energies):
         boltz[file]=numpy.exp(-free_energies[file]/0.6)/sum
     return boltz
 
+def filter(spectra):
+    print "---FILTERING DUPLICATE CONFS---"
+    unique=[]
+    d_degree=1.0
+    d_ene=0.001
+    for file in spectra.keys():
+        pair=(round(spectra[file]['energy'], 5), round(spectra[file]['or'],2))
+        duplicate=False
+        if len(unique)!=0:
+            for entry in unique:
+                if abs(entry[0]-pair[0]) < d_ene:
+                    if abs(entry[1]-pair[1]) < d_degree:
+                        print pair, "matched", entry
+                        duplicate=True
+                        spectra.pop(file)
+                        break
+        if duplicate==False:
+            unique.append(pair)
+    return spectra
+
 def main(prefix, type):
     files=glob.glob('%s*.log' % prefix)
     spectra=dict()
+    specs=['ir', 'vcd']
     for file in files:
         spectra=parse(spectra, file)
+    filter(spectra)
+    for file in spectra.keys():
+        numpy.savetxt('%s.freq.scaled' % (file.split('.log')[0]), [i*0.96 for i in spectra[file]['freqs']])
+        for spec in specs:
+            ohandle=open('%s.%s' % (file.split('.log')[0], spec), 'w')
+            for (f,s) in zip([i*0.96 for i in spectra[file]['freqs']], spectra[file][spec]):
+                ohandle.write('%0.4f\t%0.4f\n' % (f,s))
+            ohandle.close()
     energies=sort_kcal(spectra, type)
-    numpy.savetxt('sort_%s_%s.dat' % (prefix, type), [(i, energies[type][i]) for i in energies[type]['files']], fmt='%s')
+    numpy.savetxt('sort_free_energies.txt', [(i, energies[type][i]) for i in energies[type]['files']], fmt='%s')
+    print "---OUTPUT FILES---"
+    print "sorted QM kcal/mol vals in sort_free_energies.txt"
     for file in energies[type]['files']:
         energy_val=round(energies[type][file], 3)
         or_val=round(spectra[file]['or'], 3)
@@ -121,19 +150,19 @@ def main(prefix, type):
             else:
                 pass
     boltz=get_weights(energies[type])
-    for file in energies[type]['files']:
-        print file, boltz[file], energies[type][file]
-    specs=['ir', 'vcd', 'or']
+    specs=['vcd', 'or']
     or_sum=0
+    or_file=open('boltz_or_values.txt', 'w')
+    print "unique confs with boltz wt and OR value in boltz_or_values.txt"
     for spec in specs:
         final_spectra=numpy.zeros((20)) # initial zero array
-        if spec!='vcd':
+        if spec!='or':
             pylab.figure()
         for file in energies[type]['files']:
             if spec=='or':
                 or_sum+=spectra[file]['or']*boltz[file]
-                if boltz[file] > 0.05:
-                    print "OR Boltz %s:  %s deg." % (boltz[file], spectra[file]['or'])
+                or_file.write('%s\t%0.4f\t%0.4f\n' % (file, round(boltz[file],5), spectra[file]['or']))
+                #print "%s Boltz %s:  OR %s deg." % (file, round(boltz[file],5), spectra[file]['or'])
             else:
                 spectra[file]['new_freqs'], spectra[file]['new_%s' % spec]=lorentzian(spectra[file]['freqs'], spectra[file][spec])
                 if sum(final_spectra)==0:
@@ -141,17 +170,25 @@ def main(prefix, type):
                 else:
                     final_spectra+=boltz[file]*numpy.array(spectra[file]['new_%s' %
 spec])
-                pylab.vlines(x=spectra[file]['freqs'], ymin=[0]*len(spectra[file][spec]),ymax=spectra[file][spec])
-                if boltz[file] > 0.05:
-                    pylab.plot(spectra[file]['new_freqs'], spectra[file]['new_%s' % spec], linewidth=boltz[file]*4)
+                #pylab.vlines(x=spectra[file]['freqs'], ymin=[0]*len(spectra[file][spec]),ymax=spectra[file][spec])
+                if boltz[file] > 0.06:
+                    pylab.plot(spectra[file]['new_freqs'], spectra[file]['new_%s' % spec], linewidth=boltz[file]*10, label=round(boltz[file],3))
         if spec=='or':
             print "OR Rotation: %s deg." % round(or_sum,2)
         else:
             pylab.plot(spectra[file]['new_freqs'], final_spectra, linewidth=4)
-            pylab.xlim(0, int(max(spectra[file]['new_freqs'])))
+            numpy.savetxt('boltz_vcd.txt', final_spectra)
+            numpy.savetxt('boltz_freqs.txt', spectra[file]['new_freqs'])
+            print "boltz averaged frequencies in boltz_freqs.txt"
+            print "boltz averaged VCD spectra in boltz_vcd.txt"
+            #pylab.xlim(0, int(max(spectra[file]['new_freqs'])))
+            pylab.xlim(1000, 2000)
             pylab.xlabel('wavenumbers (cm$^{-1}$')
             pylab.ylabel('%s Intensity' % spec)
+            pylab.legend()
+            pylab.title(prefix)
             pylab.savefig('%s.png' % spec, dpi=300)
+    or_file.close()
     pylab.show()
 
 def parse_cmdln():
