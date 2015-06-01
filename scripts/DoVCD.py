@@ -7,7 +7,8 @@ import optparse
 
 def check_size(array1, array2):
     if len(array1)!=len(array2):
-        print "size mismatch"
+        print "WARNING: size mismatch"
+        print "trimming last vals of bigger array"
         val=min([len(array1), len(array2)])
         array1=array1[:val]
         array2=array2[:val]
@@ -168,15 +169,17 @@ def main(prefix, type):
                 if sum(final_spectra)==0:
                     final_spectra=boltz[file]*numpy.array(spectra[file]['new_%s' % spec])
                 else:
-                    final_spectra+=boltz[file]*numpy.array(spectra[file]['new_%s' %
-spec])
+                    final_spectra, spectra[file]['new_%s' % spec]=check_size(final_spectra, spectra[file]['new_%s' % spec])
+                    final_spectra+=boltz[file]*numpy.array(spectra[file]['new_%s' % spec])
                 #pylab.vlines(x=spectra[file]['freqs'], ymin=[0]*len(spectra[file][spec]),ymax=spectra[file][spec])
                 if boltz[file] > 0.06:
+                    spectra[file]['new_freqs'], spectra[file]['new_%s' % spec]=check_size(spectra[file]['new_freqs'], spectra[file]['new_%s' % spec])
                     pylab.plot(spectra[file]['new_freqs'], spectra[file]['new_%s' % spec], linewidth=boltz[file]*10, label=round(boltz[file],3))
         if spec=='or':
             print "OR Rotation: %s deg." % round(or_sum,2)
         else:
-            pylab.plot(spectra[file]['new_freqs'], final_spectra, linewidth=4)
+            spectra[file]['new_freqs'], final_spectra=check_size(spectra[file]['new_freqs'], final_spectra)
+            pylab.plot(spectra[file]['new_freqs'], final_spectra, color='k', linewidth=4)
             numpy.savetxt('boltz_vcd.txt', final_spectra)
             numpy.savetxt('boltz_freqs.txt', spectra[file]['new_freqs'])
             print "boltz averaged frequencies in boltz_freqs.txt"

@@ -176,7 +176,7 @@ spec])
         if spec=='or':
             print "OR Rotation: %s deg." % round(or_sum,2)
         else:
-            pylab.plot(spectra[file]['new_freqs'], final_spectra, linewidth=4)
+            pylab.plot(spectra[file]['new_freqs'], final_spectra, color='k', linewidth=4)
             numpy.savetxt('boltz_vcd.txt', final_spectra)
             numpy.savetxt('boltz_freqs.txt', spectra[file]['new_freqs'])
             print "boltz averaged frequencies in boltz_freqs.txt"
