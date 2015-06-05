@@ -151,7 +151,7 @@ def main(prefix, type):
             else:
                 pass
     boltz=get_weights(energies[type])
-    specs=['vcd', 'or']
+    specs=['vcd', 'ir', 'or']
     or_sum=0
     or_file=open('boltz_or_values.txt', 'w')
     print "unique confs with boltz wt and OR value in boltz_or_values.txt"
