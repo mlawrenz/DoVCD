@@ -175,17 +175,22 @@ def main(prefix, type):
                 if boltz[file] > 0.06:
                     spectra[file]['new_freqs'], spectra[file]['new_%s' % spec]=check_size(spectra[file]['new_freqs'], spectra[file]['new_%s' % spec])
                     pylab.plot(spectra[file]['new_freqs'], spectra[file]['new_%s' % spec], linewidth=boltz[file]*10, label=round(boltz[file],3))
+                    ofile=open('weight_%s_%s_%s.txt' % (spec, round(boltz[file],3), spec), 'w')
+                    for (f, s) in zip(spectra[file]['new_freqs'], spectra[file]['new_%s' % spec]):
+                        ofile.write('%0.2f\t%0.8f\n' % (f,s))
+                    ofile.close()
         if spec=='or':
             print "OR Rotation: %s deg." % round(or_sum,2)
         else:
             spectra[file]['new_freqs'], final_spectra=check_size(spectra[file]['new_freqs'], final_spectra)
             pylab.plot(spectra[file]['new_freqs'], final_spectra, color='k', linewidth=4)
-            numpy.savetxt('boltz_vcd.txt', final_spectra)
-            numpy.savetxt('boltz_freqs.txt', spectra[file]['new_freqs'])
-            print "boltz averaged frequencies in boltz_freqs.txt"
-            print "boltz averaged VCD spectra in boltz_vcd.txt"
+            ofile=open('boltz_%s.txt' % spec, 'w')
+            for (f, s) in zip(spectra[file]['new_freqs'],  final_spectra):
+                ofile.write('%0.2f\t%0.8f\n' % (f,s))
+            ofile.close()
+            print "boltz averaged %s spectra and freqs in boltz_%s.txt" % (spec, spec)
             #pylab.xlim(0, int(max(spectra[file]['new_freqs'])))
-            pylab.xlim(1000, 2000)
+            pylab.xlim(1100, 1725)
             pylab.xlabel('wavenumbers (cm$^{-1}$')
             pylab.ylabel('%s Intensity' % spec)
             pylab.legend()
