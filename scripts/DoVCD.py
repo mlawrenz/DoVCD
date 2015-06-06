@@ -16,31 +16,29 @@ def check_size(array1, array2):
         pass
     return array1, array2
 
-def lorentzian(freqs, ir, scale_factor):
+def lorentzian(freqs, ir, scale_factor, gamma, res):
     vX=freqs
     vY=ir
-    dRes=0.1
     dLorHalfWidth=100
-    dGamma=9
     dSpectRoundUp=100
     bImagePersist=1
     dPlotOffset=20
-    dResRecip=1.0/dRes # get freqs at resolution of 0.1
-    vX=[(round(x*dResRecip))/dResRecip for x in vX]
+    resRecip=1.0/res # get freqs at resolution of 0.1
+    vX=[(round(x*resRecip))/resRecip for x in vX]
     yMax=((numpy.ceil(numpy.max(vX)/dSpectRoundUp))*dSpectRoundUp) + dSpectRoundUp
     # create lorentzian to convolve
-    vXTemp=numpy.arange(-dLorHalfWidth, dLorHalfWidth, dRes)
+    vXTemp=numpy.arange(-dLorHalfWidth, dLorHalfWidth, res)
     x0=0
-    vL=1.0/((numpy.pi*dGamma)*(1+((vXTemp-x0)/dGamma)**2))  
+    vL=1.0/((numpy.pi*gamma)*(1+((vXTemp-x0)/gamma)**2))  
     vL=vL/max(vL)
-    vSin=numpy.sin(numpy.arange(0,numpy.pi, numpy.pi/(2*dLorHalfWidth/dRes)))
+    vSin=numpy.sin(numpy.arange(0,numpy.pi, numpy.pi/(2*dLorHalfWidth/res)))
     vL1=vL*vSin
     # do convolve
-    vInConvA=numpy.zeros((yMax/dRes))
+    vInConvA=numpy.zeros((yMax/res))
     for i in range(0, len(vX)):
         iIdx=round(vX[i]*10)
         vInConvA[iIdx]=vY[i]
-    vXOut=numpy.arange(dRes, yMax+dRes, dRes)
+    vXOut=numpy.arange(res, yMax+res, res)
     nYOut=numpy.convolve(vInConvA, vL1, 'same')
     size=len(nYOut)
     return scale_factor*vXOut[:size], nYOut[:size]
@@ -90,6 +88,21 @@ def sort_kcal(data, type):
         energies[type][file]=new
     return energies 
 
+def apply_energy_window(window, spectra, energies, type):
+    specs=['or', 'ir', 'vcd']
+    files=energies[type]['files']
+    for file in files:
+        if energies[type][file] >=window:
+            print energies[type][file], 'REMOVE'
+            energies[type].pop(file)
+            index=energies[type]['files'].index(file)
+            energies[type]['files'].pop(index)
+            spectra.pop(file)
+        else:
+            print energies[type][file], 'OK'
+    return spectra, energies
+        
+
 def get_weights(free_energies):
     sum=0
     boltz=dict()
@@ -99,24 +112,27 @@ def get_weights(free_energies):
         boltz[file]=numpy.exp(-free_energies[file]/0.6)/sum
     return boltz
 
-def filter(spectra, remove=False):
+def check_for_duplicates(type, energies, spectra, remove=False):
     print "---CHECKING FOR DUPLICATE CONFS---"
     unique=[]
     d_degree=1.0
     d_ene=0.001
-    for file in spectra.keys():
-        pair=(round(spectra[file]['energy'], 5), round(spectra[file]['or'],2))
+    for file in energies[type]['files']:
+        pair=(round(energies[type][file], 5), round(spectra[file]['or'],2))
         duplicate=False
         if len(unique)!=0:
             for entry in unique:
                 if abs(entry[0]-pair[0]) < d_ene:
                     if abs(entry[1]-pair[1]) < d_degree:
-                        print pair, "matched", entry
+                        print pair, "(kcal/mol, OR) matched", entry
                         duplicate=True
                         if remove==True:
                             print "REMOVED DUPLICATE"
                             spectra.pop(file)
-                        break
+                            energies[type].pop(file)
+                            index=energies[type]['files'].index(file)
+                            energies[type]['files'].pop(index)
+                            break
         if duplicate==False:
             unique.append(pair)
     return spectra
@@ -174,21 +190,31 @@ def plot_spectra(weighted_spectra):
 
 #############################################################
 
-def main(prefix, type, removedup=False, scale_factor=0.96, plot=False):
+def main(prefix,pop='dg', removedup=False, scale_factor=0.96, gamma=4, res=0.1, window=None, plot=False):
+    if pop=='dg':
+        type=='free_energy'
+    else:
+        type='energy'
+    window=float(window)
     scale_factor=float(scale_factor)
     files=glob.glob('%s*.log' % prefix)
     spectra=dict()
     #parse Gaussian log files for spectra info
     for file in files:
         spectra=parse(spectra, file)
+    energies=sort_kcal(spectra, type)  #sort by energy
     if removedup==True:    # check for removedup
         print "CHECKING FOR DUPLICATES, WITH REMOVAL"
-        filter(spectra, remove=True)
+        check_for_duplicates(type, energies, spectra,remove=True)
     else:
         print "CHECKING FOR DUPLICATES, NO REMOVAL"
-        filter(spectra)
+        check_for_duplicates(type, energies, spectra)
     write_parsed_output(spectra, scale_factor) #write parsed output
-    energies=sort_kcal(spectra, type)  #sort by energy
+    if window!=None:
+        print "REMOVING CONFS ABOVE %s %s" % (window, type)
+        import pdb
+        pdb.set_trace()
+        spectra, energies=apply_energy_window(window, spectra, energies, type)
     numpy.savetxt('sort_%s.txt' % type, [(i, energies[type][i]) for i in energies[type]['files']], fmt='%s')
     print "sorted QM kcal/mol vals in sort_%s.txt" % type
     # get boltzmann weights from energy
@@ -202,7 +228,7 @@ def main(prefix, type, removedup=False, scale_factor=0.96, plot=False):
         weighted_spectra[spec]=dict()
         weighted_spectra[spec]['final']=numpy.zeros((20)) # initial zero array
         for file in energies[type]['files']:
-            new_freq, new_spec=lorentzian(spectra[file]['freqs'], spectra[file][spec], scale_factor)
+            new_freq, new_spec=lorentzian(spectra[file]['freqs'], spectra[file][spec], scale_factor, gamma, res)
             new_freq, new_spec=check_size(new_freq, new_spec)
             weighted_spectra[spec][boltz[file]]=new_spec
             ofile=open('weight_%s_%s_%s.txt' % (spec, round(boltz[file],3), spec), 'w')
@@ -228,12 +254,13 @@ def main(prefix, type, removedup=False, scale_factor=0.96, plot=False):
 def parse_cmdln():
     parser=optparse.OptionParser()
     parser.add_option('--prefix',dest='prefix',type='string', help='prefix for gaussian log files')
-    parser.add_option('--scale',dest='scale_factor',type='string',
-help='frequency scaler depending on theory level. Default=0.96/B3LYP-631G*')
-    parser.add_option('--energy', action="store_true", dest="energy", help="perform calcs using energies, default uses free energies")
-    parser.add_option('--plot', action="store_true", dest="plot", help="plot spectra with pylab")
-    parser.add_option('--removedup', action="store_true", dest="removedup",
-help="Remove duplicate conformations based no energy and OR")
+    parser.add_option('--scale',dest='scale_factor',type='string', help='frequency scaler depending on theory level. Default=0.96/B3LYP-631G*')
+    parser.add_option('--pop',dest='pop',type='string',help='this dictates whether to use total energies (de) or entropy-adjusted free energies to determine population. Default is dg.')
+    parser.add_option('--plot', action="store_true", dest="plot", help="If this flag is used, spectra will be plotted.")
+    parser.add_option('--removedup', action="store_true", dest="removedup", help="Remove duplicate conformations based no energy and OR")
+    parser.add_option('--gamma',dest='gamma',type='string', help='scales lorenztian for peak reproduction. Default=4.')
+    parser.add_option('--res',dest='resolution',type='string', help='frequency resolution of lorenztian. Default=0.1')
+    parser.add_option('--window',dest='window',type='string',help='energy cutoff in kcal/mol for which conformations in prefix*.log  to use. Default is no cutoff.')
     (options, args) = parser.parse_args()
     return (options, args)
 
@@ -241,13 +268,12 @@ if __name__=="__main__":
     (options,args)=parse_cmdln()
     # defaults
     plot=False
-    type='free_energy'
     removedup=False
-    if options.energy==True:
-        type='energy'
     if options.removedup==True:
         removedup=True
     if options.plot==True:
         plot=True
-    main(prefix=options.prefix, type=type, removedup=removedup, scale_factor=options.scale_factor, plot=plot)
+    main(prefix=options.prefix, pop=options.pop, removedup=removedup,
+scale_factor=options.scale_factor, gamma=options.gamma, res=options.resolution,
+window=options.window, plot=plot)
 
