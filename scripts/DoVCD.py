@@ -90,10 +90,11 @@ def sort_kcal(data, type):
 
 def apply_energy_window(window, spectra, energies, type):
     specs=['or', 'ir', 'vcd']
-    files=energies[type]['files']
+    import copy
+    files=copy.copy(energies[type]['files'])
     for file in files:
         if energies[type][file] >=window:
-            print energies[type][file], 'REMOVE'
+            print file, energies[type][file], 'REMOVE'
             energies[type].pop(file)
             index=energies[type]['files'].index(file)
             energies[type]['files'].pop(index)
@@ -151,7 +152,7 @@ def write_parsed_output(spectra, scale_factor):
         print "%s files in *.%s" % (spec, spec)
     return
 
-def get_optical_rotation(energies, spectra, boltz):
+def get_optical_rotation(type, energies, spectra, boltz):
     or_sum=0
     or_file=open('boltz_or_values.txt', 'w')
     print "Bolztmann OR values in boltz_or_values.txt"
@@ -196,6 +197,8 @@ def main(prefix,pop='dg', removedup=False, scale_factor=0.96, gamma=4, res=0.1, 
     else:
         type='energy'
     window=float(window)
+    float(res)
+    gamma=float(gamma)
     scale_factor=float(scale_factor)
     files=glob.glob('%s*.log' % prefix)
     spectra=dict()
@@ -220,7 +223,7 @@ def main(prefix,pop='dg', removedup=False, scale_factor=0.96, gamma=4, res=0.1, 
     # get boltzmann weights from energy
     boltz=get_weights(energies[type])
     # get OR
-    or_sum=get_optical_rotation(energies, spectra, boltz)
+    or_sum=get_optical_rotation(type, energies, spectra, boltz)
     print "OR Rotation: %s deg." % round(or_sum,2)
     weighted_spectra=dict()
     specs=['vcd', 'ir']
