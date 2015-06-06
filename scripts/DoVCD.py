@@ -161,26 +161,24 @@ def get_optical_rotation(type, energies, spectra, boltz):
         or_file.write('%s\t%0.4f\t%0.4f\n' % (file, round(boltz[file],5), spectra[file]['or']))
     return or_sum
 
-def plot_spectra(weighted_spectra):
+def plot_spectra(weighted_spectra, boltz):
     specs=['vcd', 'ir']
     for spec in specs:
-        weights=[]
-        for i in  weighted_spectra[spec].keys():
-            if i is not 'final':
-                if i is not 'all_freqs':
-                    weights.append(i)
-        pylab.figure()
+        weights=[boltz[file] for file in boltz.keys()]
         weights=numpy.array(weights)
         order=numpy.argsort(weights)
         hi_to_low_weights=weights[order][::-1]
+        print "SUM OF WEIGHTS", numpy.sum(weights)
         for (n, i) in enumerate(hi_to_low_weights):
             if numpy.sum(hi_to_low_weights[:n+1]) >= 0.90:
                 max_weight_for_plot=i
                 break
-        for weight in hi_to_low_weights:
+        pylab.figure()
+        for file in boltz.keys():
+            weight=boltz[file]
             if weight >= max_weight_for_plot:
                 print "plotting", weight
-                pylab.plot(weighted_spectra[spec]['all_freqs'], weighted_spectra[spec][weight], linewidth=weight*10, label=round(weight,3))
+                pylab.plot(weighted_spectra[spec]['all_freqs'], weighted_spectra[spec][file], linewidth=weight*10, label=round(weight,3))
         pylab.plot(weighted_spectra[spec]['all_freqs'], weighted_spectra[spec]['final'], color='k', linewidth=4)
         pylab.xlim(1100, 1725)
         pylab.xlabel('wavenumbers (cm$^{-1}$')
@@ -191,12 +189,11 @@ def plot_spectra(weighted_spectra):
 
 #############################################################
 
-def main(prefix,pop='dg', removedup=False, scale_factor=0.96, gamma=4, res=0.1, window=None, plot=False):
+def main(prefix,pop,scale_factor, gamma, res, window, plot=False, removedup=False):
     if pop=='dg':
-        type=='free_energy'
+        type='free_energy'
     else:
         type='energy'
-    window=float(window)
     float(res)
     gamma=float(gamma)
     scale_factor=float(scale_factor)
@@ -214,6 +211,7 @@ def main(prefix,pop='dg', removedup=False, scale_factor=0.96, gamma=4, res=0.1, 
         check_for_duplicates(type, energies, spectra)
     write_parsed_output(spectra, scale_factor) #write parsed output
     if window!=None:
+        window=float(window)
         print "REMOVING CONFS ABOVE %s %s" % (window, type)
         import pdb
         pdb.set_trace()
@@ -233,7 +231,7 @@ def main(prefix,pop='dg', removedup=False, scale_factor=0.96, gamma=4, res=0.1, 
         for file in energies[type]['files']:
             new_freq, new_spec=lorentzian(spectra[file]['freqs'], spectra[file][spec], scale_factor, gamma, res)
             new_freq, new_spec=check_size(new_freq, new_spec)
-            weighted_spectra[spec][boltz[file]]=new_spec
+            weighted_spectra[spec][file]=new_spec
             ofile=open('weight_%s_%s_%s.txt' % (spec, round(boltz[file],3), spec), 'w')
             for (f, s) in zip(new_freq, new_spec):
                 ofile.write('%0.2f\t%0.8f\n' % (f,s))
@@ -252,18 +250,19 @@ def main(prefix,pop='dg', removedup=False, scale_factor=0.96, gamma=4, res=0.1, 
     if plot==True:
         import pdb
         pdb.set_trace()
-        plot_spectra(weighted_spectra)
+        plot_spectra(weighted_spectra, boltz)
 
 def parse_cmdln():
     parser=optparse.OptionParser()
     parser.add_option('--prefix',dest='prefix',type='string', help='prefix for gaussian log files')
-    parser.add_option('--scale',dest='scale_factor',type='string', help='frequency scaler depending on theory level. Default=0.96/B3LYP-631G*')
-    parser.add_option('--pop',dest='pop',type='string',help='this dictates whether to use total energies (de) or entropy-adjusted free energies to determine population. Default is dg.')
-    parser.add_option('--plot', action="store_true", dest="plot", help="If this flag is used, spectra will be plotted.")
+    parser.add_option('--scale',dest='scale_factor',type='string', help='frequency scaler depending on theory level. Default=0.96/B3LYP-631G*', default=0.96)
+
+    parser.add_option('--pop',dest='pop',type='string',help='this dictates whether to use total energies (de) or entropy-adjusted free energies to determine population. Default is dg.', default='dg')
+    parser.add_option('--gamma',dest='gamma',type='string', help='scales lorenztian for peak reproduction. Default=4.', default=4.0)
+    parser.add_option('--res',dest='resolution',type='string', help='frequency resolution of lorenztian. Default=0.1', default=0.1)
+    parser.add_option('--window',dest='window',type='string',help='energy cutoff in kcal/mol for which conformations in prefix*.log  to use. Default is no cutoff.', default=None)
     parser.add_option('--removedup', action="store_true", dest="removedup", help="Remove duplicate conformations based no energy and OR")
-    parser.add_option('--gamma',dest='gamma',type='string', help='scales lorenztian for peak reproduction. Default=4.')
-    parser.add_option('--res',dest='resolution',type='string', help='frequency resolution of lorenztian. Default=0.1')
-    parser.add_option('--window',dest='window',type='string',help='energy cutoff in kcal/mol for which conformations in prefix*.log  to use. Default is no cutoff.')
+    parser.add_option('--plot', action="store_true", dest="plot", help="If this flag is used, spectra will be plotted.")
     (options, args) = parser.parse_args()
     return (options, args)
 
