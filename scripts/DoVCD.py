@@ -16,7 +16,7 @@ def check_size(array1, array2):
         pass
     return array1, array2
 
-def lorentzian(freqs, ir, scale_factor, gamma, res):
+def lorentzian(freqs, ir, gamma, res):
     vX=freqs
     vY=ir
     dLorHalfWidth=100
@@ -41,7 +41,7 @@ def lorentzian(freqs, ir, scale_factor, gamma, res):
     vXOut=numpy.arange(res, yMax+res, res)
     nYOut=numpy.convolve(vInConvA, vL1, 'same')
     size=len(nYOut)
-    return scale_factor*vXOut[:size], nYOut[:size]
+    return vXOut[:size], nYOut[:size]
 
 
 def parse(spectra, file):
@@ -100,7 +100,7 @@ def apply_energy_window(window, spectra, energies, type):
             energies[type]['files'].pop(index)
             spectra.pop(file)
         else:
-            print energies[type][file], 'OK'
+            pass
     return spectra, energies
         
 
@@ -114,11 +114,12 @@ def get_weights(free_energies):
     return boltz
 
 def check_for_duplicates(type, energies, spectra, remove=False):
-    print "---CHECKING FOR DUPLICATE CONFS---"
     unique=[]
     d_degree=1.0
-    d_ene=0.001
-    for file in energies[type]['files']:
+    d_ene=0.5
+    import copy
+    files=copy.copy(energies[type]['files'])
+    for file in files:
         pair=(round(energies[type][file], 5), round(spectra[file]['or'],2))
         duplicate=False
         if len(unique)!=0:
@@ -128,12 +129,15 @@ def check_for_duplicates(type, energies, spectra, remove=False):
                         print pair, "(kcal/mol, OR) matched", entry
                         duplicate=True
                         if remove==True:
-                            print "REMOVED DUPLICATE"
+                            print "REMOVED DUPLICATE", file
                             spectra.pop(file)
                             energies[type].pop(file)
                             index=energies[type]['files'].index(file)
                             energies[type]['files'].pop(index)
                             break
+        else:
+            unique.append(pair)
+            continue
         if duplicate==False:
             unique.append(pair)
     return spectra
@@ -141,24 +145,22 @@ def check_for_duplicates(type, energies, spectra, remove=False):
 def write_parsed_output(spectra, scale_factor):
     specs=['ir', 'vcd']
     for file in spectra.keys():
+        numpy.savetxt('%s.freq' % (file.split('.log')[0]),spectra[file]['freqs'])
         numpy.savetxt('%s.freq.scaled' % (file.split('.log')[0]),[i*scale_factor for i in spectra[file]['freqs']])
         for spec in specs:
             ohandle=open('%s.%s' % (file.split('.log')[0], spec), 'w')
             for (f,s) in zip([i*scale_factor for i in spectra[file]['freqs']], spectra[file][spec]):
                 ohandle.write('%0.4f\t%0.4f\n' % (f,s))
             ohandle.close()
-    print "scaled frequencies in *.freq.scaled"
-    for spec in specs:
-        print "%s files in *.%s" % (spec, spec)
     return
 
 def get_optical_rotation(type, energies, spectra, boltz):
     or_sum=0
-    or_file=open('boltz_or_values.txt', 'w')
-    print "Bolztmann OR values in boltz_or_values.txt"
+    or_file=open('sort_or_values.txt', 'w')
+    print "sorted unique QM energy (kcal/mol) + OR values in sort_or_values.txt" 
     for file in energies[type]['files']:
         or_sum+=spectra[file]['or']*boltz[file]
-        or_file.write('%s\t%0.4f\t%0.4f\n' % (file, round(boltz[file],5), spectra[file]['or']))
+        or_file.write('%s\t%0.4f\t%0.4f\n' % (file, round(energies[type][file],5), spectra[file]['or']))
     return or_sum
 
 def plot_spectra(weighted_spectra, boltz):
@@ -174,14 +176,15 @@ def plot_spectra(weighted_spectra, boltz):
                 max_weight_for_plot=i
                 break
         pylab.figure()
-        for file in boltz.keys():
-            weight=boltz[file]
-            if weight >= max_weight_for_plot:
-                print "plotting", weight
-                pylab.plot(weighted_spectra[spec]['all_freqs'], weighted_spectra[spec][file], linewidth=weight*10, label=round(weight,3))
-        pylab.plot(weighted_spectra[spec]['all_freqs'], weighted_spectra[spec]['final'], color='k', linewidth=4)
+        for weight in hi_to_low_weights:
+            for file in boltz.keys():
+                if boltz[file]==weight:
+                    if weight >= max_weight_for_plot:
+                        print "plotting", weight
+                        pylab.plot(weighted_spectra[spec]['scaled_all_freqs'], weighted_spectra[spec][file], linewidth=weight*10, label=round(weight,3))
+        pylab.plot(weighted_spectra[spec]['scaled_all_freqs'], weighted_spectra[spec]['final'], color='k', linewidth=4)
         pylab.xlim(1100, 1725)
-        pylab.xlabel('wavenumbers (cm$^{-1}$')
+        pylab.xlabel('wavenumbers (cm$^{-1}$)')
         pylab.ylabel('%s Intensity' % spec)
         pylab.legend()
         pylab.savefig('%s.png' % spec, dpi=300)
@@ -209,17 +212,18 @@ def main(prefix,pop,scale_factor, gamma, res, window, plot=False, removedup=Fals
     else:
         print "CHECKING FOR DUPLICATES, NO REMOVAL"
         check_for_duplicates(type, energies, spectra)
-    write_parsed_output(spectra, scale_factor) #write parsed output
     if window!=None:
         window=float(window)
         print "REMOVING CONFS ABOVE %s %s" % (window, type)
-        import pdb
-        pdb.set_trace()
         spectra, energies=apply_energy_window(window, spectra, energies, type)
+    write_parsed_output(spectra, scale_factor) #write parsed output
     numpy.savetxt('sort_%s.txt' % type, [(i, energies[type][i]) for i in energies[type]['files']], fmt='%s')
-    print "sorted QM kcal/mol vals in sort_%s.txt" % type
+    print "sorted unique QM (kcal/mol) values in sort_%s.txt" % type
     # get boltzmann weights from energy
     boltz=get_weights(energies[type])
+    ohandle=open('weight.txt', 'w')
+    for pair in sorted(boltz.iteritems(), key=operator.itemgetter(1)):
+        ohandle.write('%s\t%s\n' % (pair[0], pair[1])) # write conf, boltz wt
     # get OR
     or_sum=get_optical_rotation(type, energies, spectra, boltz)
     print "OR Rotation: %s deg." % round(or_sum,2)
@@ -229,39 +233,37 @@ def main(prefix,pop,scale_factor, gamma, res, window, plot=False, removedup=Fals
         weighted_spectra[spec]=dict()
         weighted_spectra[spec]['final']=numpy.zeros((20)) # initial zero array
         for file in energies[type]['files']:
-            new_freq, new_spec=lorentzian(spectra[file]['freqs'], spectra[file][spec], scale_factor, gamma, res)
-            new_freq, new_spec=check_size(new_freq, new_spec)
-            weighted_spectra[spec][file]=new_spec
-            ofile=open('weight_%s_%s_%s.txt' % (spec, round(boltz[file],3), spec), 'w')
-            for (f, s) in zip(new_freq, new_spec):
+            unscaled_new_freq, convolved_spec=lorentzian(spectra[file]['freqs'], spectra[file][spec], gamma, res)
+            unscaled_freq, convolved_spec=check_size(unscaled_new_freq, convolved_spec)
+            weighted_spectra[spec][file]=convolved_spec
+            ofile=open('%s.%s_convolved.txt' % (file.split('.log'),spec), 'w')
+            scaled_new_freq=[i*scale_factor for i in unscaled_new_freq]
+            for (f, s) in zip(scaled_new_freq, convolved_spec):
                 ofile.write('%0.2f\t%0.8f\n' % (f,s))
             ofile.close()
             if sum(weighted_spectra[spec]['final'])==0:
-                weighted_spectra[spec]['final']=boltz[file]*numpy.array(new_spec)
-                weighted_spectra[spec]['all_freqs']=new_freq
+                weighted_spectra[spec]['final']=boltz[file]*numpy.array(convolved_spec)
+                weighted_spectra[spec]['scaled_all_freqs']=[i*scale_factor for i in unscaled_new_freq]
             else:
-                weighted_spectra[spec]['final'], new_spec=check_size(weighted_spectra[spec]['final'], new_spec)
-                weighted_spectra[spec]['final']+=boltz[file]*numpy.array(new_spec)
-        ofile=open('boltz_%s.txt' % spec, 'w')
-        for (f, s) in zip( weighted_spectra[spec]['all_freqs'], weighted_spectra[spec]['final']):
+                weighted_spectra[spec]['final'], convolved_spec=check_size(weighted_spectra[spec]['final'], convolved_spec)
+                weighted_spectra[spec]['final']+=boltz[file]*numpy.array(convolved_spec)
+        ofile=open('final_weighted_%s.txt' % spec, 'w')
+        for (f, s) in zip(weighted_spectra[spec]['scaled_all_freqs'], weighted_spectra[spec]['final']):
             ofile.write('%0.2f\t%0.8f\n' % (f,s))
         ofile.close()
-        print "boltz averaged %s spectra and freqs in boltz_%s.txt" % (spec, spec)
+        print "Boltzmann averaged %s spectra and scaled freqs in final_weighted_%s.txt" % (spec, spec)
     if plot==True:
-        import pdb
-        pdb.set_trace()
         plot_spectra(weighted_spectra, boltz)
 
 def parse_cmdln():
     parser=optparse.OptionParser()
-    parser.add_option('--prefix',dest='prefix',type='string', help='prefix for gaussian log files')
-    parser.add_option('--scale',dest='scale_factor',type='string', help='frequency scaler depending on theory level. Default=0.96/B3LYP-631G*', default=0.96)
-
-    parser.add_option('--pop',dest='pop',type='string',help='this dictates whether to use total energies (de) or entropy-adjusted free energies to determine population. Default is dg.', default='dg')
-    parser.add_option('--gamma',dest='gamma',type='string', help='scales lorenztian for peak reproduction. Default=4.', default=4.0)
-    parser.add_option('--res',dest='resolution',type='string', help='frequency resolution of lorenztian. Default=0.1', default=0.1)
-    parser.add_option('--window',dest='window',type='string',help='energy cutoff in kcal/mol for which conformations in prefix*.log  to use. Default is no cutoff.', default=None)
-    parser.add_option('--removedup', action="store_true", dest="removedup", help="Remove duplicate conformations based no energy and OR")
+    parser.add_option('--prefix',dest='prefix',type='string', help='Prefix for Gaussian log files.')
+    parser.add_option('--scale',dest='scale_factor',type='string', help='Frequency scalar depending on theory level. Default=0.96 (for B3LYP-631G*).', default=0.96)
+    parser.add_option('--pop',dest='pop',type='string',help='Selects total energies (de) or entropy-adjusted free energies (dg) to determine population. Default is dg.', default='dg')
+    parser.add_option('--gamma',dest='gamma',type='string', help='Scales Lorenztian for peak reproduction. Default=4.', default=4.0)
+    parser.add_option('--res',dest='resolution',type='string', help='Frequency resolution of Lorenztian. Default=0.1', default=0.1)
+    parser.add_option('--window',dest='window',type='string',help='de/dg (depending on pop flag) cutoff in kcal/mol for conformations in prefix*.log to use. Default is no cutoff.', default=None)
+    parser.add_option('--removedup', action="store_true", dest="removedup", help="If this flag is used, will remove duplicate conformations based on pop and OR. Without the flag, a check is run for duplicates but no removal.")
     parser.add_option('--plot', action="store_true", dest="plot", help="If this flag is used, spectra will be plotted.")
     (options, args) = parser.parse_args()
     return (options, args)
