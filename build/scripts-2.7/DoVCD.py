@@ -5,10 +5,14 @@ import glob
 import optparse
 
 
+
+######HELPERS AND PARSERS#######################################################
+
 def check_size(array1, array2):
     if len(array1)!=len(array2):
-        print "WARNING: size mismatch"
-        print "trimming last vals of bigger array"
+        print "WARNING: size mismatch in freq vs. intensity"
+        print len(array1), len(array2)
+        print "probably rounding effecr, trimming last item from longest array"
         val=min([len(array1), len(array2)])
         array1=array1[:val]
         array2=array2[:val]
@@ -16,32 +20,15 @@ def check_size(array1, array2):
         pass
     return array1, array2
 
-def lorentzian(freqs, ir, gamma, res):
-    vX=freqs
-    vY=ir
-    dLorHalfWidth=100
+def check_for_rounding_errors(spectra):
+    freq_size=10000000000
     dSpectRoundUp=100
-    bImagePersist=1
-    dPlotOffset=20
-    resRecip=1.0/res # get freqs at resolution of 0.1
-    vX=[(round(x*resRecip))/resRecip for x in vX]
-    yMax=((numpy.ceil(numpy.max(vX)/dSpectRoundUp))*dSpectRoundUp) + dSpectRoundUp
-    # create lorentzian to convolve
-    vXTemp=numpy.arange(-dLorHalfWidth, dLorHalfWidth, res)
-    x0=0
-    vL=1.0/((numpy.pi*gamma)*(1+((vXTemp-x0)/gamma)**2))  
-    vL=vL/max(vL)
-    vSin=numpy.sin(numpy.arange(0,numpy.pi, numpy.pi/(2*dLorHalfWidth/res)))
-    vL1=vL*vSin
-    # do convolve
-    vInConvA=numpy.zeros((yMax/res))
-    for i in range(0, len(vX)):
-        iIdx=round(vX[i]*10)
-        vInConvA[iIdx]=vY[i]
-    vXOut=numpy.arange(res, yMax+res, res)
-    nYOut=numpy.convolve(vInConvA, vL1, 'same')
-    size=len(nYOut)
-    return vXOut[:size], nYOut[:size]
+    for file in spectra.keys():
+        if max(spectra[file]['freqs']) < freq_size:
+            xMax=((numpy.ceil(numpy.max(spectra[file]['freqs'])/dSpectRoundUp))*dSpectRoundUp) + dSpectRoundUp
+            if xMax < freq_size:
+                freq_size=xMax
+    return freq_size
 
 
 def parse(spectra, file):
@@ -126,7 +113,7 @@ def check_for_duplicates(type, energies, spectra, remove=False):
             for entry in unique:
                 if abs(entry[0]-pair[0]) < d_ene:
                     if abs(entry[1]-pair[1]) < d_degree:
-                        print pair, "(kcal/mol, OR) matched", entry
+                        print file, pair, "(kcal/mol, OR) matched", entry
                         duplicate=True
                         if remove==True:
                             print "REMOVED DUPLICATE", file
@@ -145,12 +132,12 @@ def check_for_duplicates(type, energies, spectra, remove=False):
 def write_parsed_output(spectra, scale_factor):
     specs=['ir', 'vcd']
     for file in spectra.keys():
-        numpy.savetxt('%s.freq' % (file.split('.log')[0]),spectra[file]['freqs'])
-        numpy.savetxt('%s.freq.scaled' % (file.split('.log')[0]),[i*scale_factor for i in spectra[file]['freqs']])
+        numpy.savetxt('%s.freq' % (file.split('.log')[0]),spectra[file]['freqs'], fmt='%0.4f')
+        numpy.savetxt('%s.freq.scaled' % (file.split('.log')[0]),[i*scale_factor for i in spectra[file]['freqs']], fmt='%0.4f')
         for spec in specs:
             ohandle=open('%s.%s' % (file.split('.log')[0], spec), 'w')
             for (f,s) in zip([i*scale_factor for i in spectra[file]['freqs']], spectra[file][spec]):
-                ohandle.write('%0.4f\t%0.4f\n' % (f,s))
+                ohandle.write('%0.4f   %0.4f\n' % (f,s))
             ohandle.close()
     return
 
@@ -160,7 +147,7 @@ def get_optical_rotation(type, energies, spectra, boltz):
     print "sorted unique QM energy (kcal/mol) + OR values in sort_or_values.txt" 
     for file in energies[type]['files']:
         or_sum+=spectra[file]['or']*boltz[file]
-        or_file.write('%s\t%0.4f\t%0.4f\n' % (file, round(energies[type][file],5), spectra[file]['or']))
+        or_file.write('%s   %0.4f   %0.4f\n' % (file, round(energies[type][file],5), spectra[file]['or']))
     return or_sum
 
 def plot_spectra(weighted_spectra, boltz):
@@ -180,15 +167,46 @@ def plot_spectra(weighted_spectra, boltz):
             for file in boltz.keys():
                 if boltz[file]==weight:
                     if weight >= max_weight_for_plot:
-                        print "plotting", weight
                         pylab.plot(weighted_spectra[spec]['scaled_all_freqs'], weighted_spectra[spec][file], linewidth=weight*10, label=round(weight,3))
-        pylab.plot(weighted_spectra[spec]['scaled_all_freqs'], weighted_spectra[spec]['final'], color='k', linewidth=4)
+        max_weight=numpy.max(weights)
+        pylab.plot(weighted_spectra[spec]['scaled_all_freqs'], weighted_spectra[spec]['final'], color='k', linewidth=max_weight*10)
         pylab.xlim(1100, 1725)
         pylab.xlabel('wavenumbers (cm$^{-1}$)')
         pylab.ylabel('%s Intensity' % spec)
         pylab.legend()
         pylab.savefig('%s.png' % spec, dpi=300)
     pylab.show()
+
+
+#############################################################
+
+def lorentzian(freqs, ir, freq_size, gamma, res):
+    vX=freqs
+    vY=ir
+    dLorHalfWidth=100 #Lorentzian window
+    dSpectRoundUp=100
+    resRecip=1.0/res 
+    vX=[(round(x*resRecip))/resRecip for x in vX] # get freqs at resolution
+    xMax=freq_size # perform below rounding in check_for_rounding_errors
+    #xMax=((numpy.ceil(numpy.max(vX)/dSpectRoundUp))*dSpectRoundUp) + dSpectRoundUp
+
+    # create lorentzian to convolve
+    vXTemp=numpy.arange(-dLorHalfWidth, dLorHalfWidth, res) # x vector for +/- 100 Lorentz at res steps, for convolution
+    x0=0 # center Lorentzian at zero 
+    vL=1.0/((numpy.pi*gamma)*(1+((vXTemp-x0)/gamma)**2)) # Cauchy-Lorentz 
+    vL=vL/max(vL) # normalize
+    vSin=numpy.sin(numpy.arange(0,numpy.pi, numpy.pi/(2*dLorHalfWidth/res))) #vector to pull down edges
+    vL1=vL*vSin
+    # do convolve for whole spectra at res intervals
+    vInConvA=numpy.zeros((xMax/res))
+    for i in range(0, len(vX)): # fill intervals from vY
+        iIdx=round(vX[i]*resRecip)
+        vInConvA[iIdx]=vY[i]
+    vXOut=numpy.arange(res, xMax+res, res)
+    nYOut=numpy.convolve(vInConvA, vL1, 'same') #convolve step
+    return vXOut, nYOut
+
+
 
 #############################################################
 
@@ -217,39 +235,39 @@ def main(prefix,pop,scale_factor, gamma, res, window, plot=False, removedup=Fals
         print "REMOVING CONFS ABOVE %s %s" % (window, type)
         spectra, energies=apply_energy_window(window, spectra, energies, type)
     write_parsed_output(spectra, scale_factor) #write parsed output
-    numpy.savetxt('sort_%s.txt' % type, [(i, energies[type][i]) for i in energies[type]['files']], fmt='%s')
-    print "sorted unique QM (kcal/mol) values in sort_%s.txt" % type
+    numpy.savetxt('sort_%s.txt' % type, [(i, round(energies[type][i], 5)) for i in energies[type]['files']], fmt='%s')
+    print "sorted unique QM energy (kcal/mol) values in sort_%s.txt" % type
     # get boltzmann weights from energy
     boltz=get_weights(energies[type])
     ohandle=open('weight.txt', 'w')
     for pair in sorted(boltz.iteritems(), key=operator.itemgetter(1)):
-        ohandle.write('%s\t%s\n' % (pair[0], pair[1])) # write conf, boltz wt
+        ohandle.write('%s   %s\n' % (pair[1], pair[0])) # write conf, boltz wt
     # get OR
     or_sum=get_optical_rotation(type, energies, spectra, boltz)
     print "OR Rotation: %s deg." % round(or_sum,2)
     weighted_spectra=dict()
     specs=['vcd', 'ir']
     for spec in specs:
+        freq_size=check_for_rounding_errors(spectra) #rounding effects in numpy.ceil of lorentzian, check for min value
         weighted_spectra[spec]=dict()
         weighted_spectra[spec]['final']=numpy.zeros((20)) # initial zero array
         for file in energies[type]['files']:
-            unscaled_new_freq, convolved_spec=lorentzian(spectra[file]['freqs'], spectra[file][spec], gamma, res)
-            unscaled_freq, convolved_spec=check_size(unscaled_new_freq, convolved_spec)
-            weighted_spectra[spec][file]=convolved_spec
-            ofile=open('%s.%s_convolved.txt' % (file.split('.log'),spec), 'w')
-            scaled_new_freq=[i*scale_factor for i in unscaled_new_freq]
-            for (f, s) in zip(scaled_new_freq, convolved_spec):
-                ofile.write('%0.2f\t%0.8f\n' % (f,s))
-            ofile.close()
             if sum(weighted_spectra[spec]['final'])==0:
+                unscaled_new_freq, convolved_spec=lorentzian(spectra[file]['freqs'], spectra[file][spec], freq_size, gamma, res)
                 weighted_spectra[spec]['final']=boltz[file]*numpy.array(convolved_spec)
                 weighted_spectra[spec]['scaled_all_freqs']=[i*scale_factor for i in unscaled_new_freq]
             else:
-                weighted_spectra[spec]['final'], convolved_spec=check_size(weighted_spectra[spec]['final'], convolved_spec)
+                unscaled_new_freq, convolved_spec=lorentzian(spectra[file]['freqs'], spectra[file][spec], freq_size, gamma, res)
                 weighted_spectra[spec]['final']+=boltz[file]*numpy.array(convolved_spec)
+            weighted_spectra[spec][file]=convolved_spec
+            ofile=open('%s.%s_convolved.txt' % (file.split('.log')[0], spec), 'w')
+            scaled_new_freq=[i*scale_factor for i in unscaled_new_freq]
+            for (f, s) in zip(scaled_new_freq, convolved_spec):
+                ofile.write('%0.2f   %0.8f\n' % (f,s))
+            ofile.close()
         ofile=open('final_weighted_%s.txt' % spec, 'w')
         for (f, s) in zip(weighted_spectra[spec]['scaled_all_freqs'], weighted_spectra[spec]['final']):
-            ofile.write('%0.2f\t%0.8f\n' % (f,s))
+            ofile.write('%0.2f   %0.8f\n' % (f,s))
         ofile.close()
         print "Boltzmann averaged %s spectra and scaled freqs in final_weighted_%s.txt" % (spec, spec)
     if plot==True:
@@ -260,7 +278,7 @@ def parse_cmdln():
     parser.add_option('--prefix',dest='prefix',type='string', help='Prefix for Gaussian log files.')
     parser.add_option('--scale',dest='scale_factor',type='string', help='Frequency scalar depending on theory level. Default=0.96 (for B3LYP-631G*).', default=0.96)
     parser.add_option('--pop',dest='pop',type='string',help='Selects total energies (de) or entropy-adjusted free energies (dg) to determine population. Default is dg.', default='dg')
-    parser.add_option('--gamma',dest='gamma',type='string', help='Scales Lorenztian for peak reproduction. Default=4.', default=4.0)
+    parser.add_option('--gamma',dest='gamma',type='string', help='Width parameter of Lorenztian, for peak reproduction. Default=4.', default=4.0)
     parser.add_option('--res',dest='resolution',type='string', help='Frequency resolution of Lorenztian. Default=0.1', default=0.1)
     parser.add_option('--window',dest='window',type='string',help='de/dg (depending on pop flag) cutoff in kcal/mol for conformations in prefix*.log to use. Default is no cutoff.', default=None)
     parser.add_option('--removedup', action="store_true", dest="removedup", help="If this flag is used, will remove duplicate conformations based on pop and OR. Without the flag, a check is run for duplicates but no removal.")
