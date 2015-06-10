@@ -215,7 +215,7 @@ def main(prefix,pop,scale_factor, gamma, res, window, plot=False, removedup=Fals
         type='free_energy'
     else:
         type='energy'
-    float(res)
+    res=float(res)
     gamma=float(gamma)
     scale_factor=float(scale_factor)
     files=glob.glob('%s*.log' % prefix)
